@@ -1,0 +1,136 @@
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, include = FALSE}
+# echo=FALSE will stop the code chunk from appearing in the knit document
+# warning=FALSE and message=FALSE will stop R messages from appearing in the knit document
+library(tidyverse)
+library(dplyr)
+library(knitr)
+library(tidyr)
+library(RColorBrewer)
+library(gridExtra)
+# the data is not in the csv form we usually use, but in an R format, .rds.
+# the following line saves it as ces19 and you can work with it as you're used to now
+ces19 <- readRDS("ces19.rds")
+
+
+# see the project information page for more information: https://q.utoronto.ca/courses/184002/pages/project
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# Overall data cleaning
+
+ces_clean <- ces19 %>%
+   #select the variables and keep only rows with observations
+  select(gender, education, lead_rating_23, groups_therm_5, citizenship, age, province, imm, spend_imm_min, spend_educ)%>%
+  filter(!(is.na(lead_rating_23)))%>%
+  filter(!(is.na(groups_therm_5))) %>%
+  filter(!(is.na(education)))%>%
+  filter(!(is.na(citizenship)))%>%
+  filter(!(is.na(gender)))%>%
+  # mutating variables for better grouping
+  filter(citizenship == "Canadian citizen")%>%
+  mutate(education_level = ifelse(education %in% c("Some Technical", "No Schooling", "Completed elementary school", "Some secondary/ high school", "Completed secondary/ high school"), "Low Education", "High Education"))
+  #Splits the education levels into two groups - high and low, with high being anything "community college" and above,  and low being anything from "Some Technical" and below
+
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#Statistical Analysis for Q1
+
+#Data Wrangling for q1
+q1_ces <- ces_clean %>%
+  filter(spend_educ != "Don't know/ Prefer not to answer")
+
+#Summary table to interpret Bar plot
+q1_ces %>% 
+  group_by(education_level) %>% 
+  summarise(n(),
+            spend_more = sum(spend_educ == "Spend more"),
+            spend_same = sum(spend_educ == "Spend about the same as now"),
+            spend_less = sum(spend_educ == "Spend less"))
+
+#Code for calculating Test Statistic
+test_stat <- q1_ces %>% 
+  group_by(education_level) %>% 
+  summarise(n=n(),
+            proportion_more = sum(spend_educ == "Spend more") / n()) %>% 
+  summarise(value = diff(proportion_more))
+
+test_stat <- as.numeric(test_stat)
+#outputs as -0.01590806
+
+# Simulation table for null hypothesis test
+set.seed(789)
+repetitions <- 1000
+simulated_values <- rep(NA, repetitions)
+
+for(i in 1:repetitions){
+  sim_value <- q1_ces %>% 
+    mutate(education_level = sample(education_level)) %>% 
+    group_by(education_level) %>% 
+    summarise(proportion_more = sum(spend_educ == "Spend more") / n()) %>% 
+    summarise(value = diff(proportion_more))
+  
+  simulated_values[i] <- as.numeric(sim_value)
+}
+
+sim <- tibble(proportion_diff = simulated_values)
+
+# Histogram to understand the p-value
+sim %>% 
+  ggplot(aes(x = proportion_diff)) +
+  geom_histogram(color = "black",
+                 fill = "darkseagreen1",
+                 bins = 30) +
+  labs(x = "The Difference Between the Simulated Proportions of the 2 Groups")
+
+# Code to calculate p-value
+num_more_extreme <- sim %>% 
+  filter(abs(proportion_diff) >= abs(test_stat)) %>% summarise(n())
+
+p_value <- as.numeric(num_more_extreme / repetitions)
+# p_value = 0.034
+# we have moderate evidence against the null hypothesis
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+#Statistics for Q2
+
+#Data Wrangling for Q2
+q2_ces <- ces_clean %>%
+  filter(gender=="A woman")
+
+#Statistical Simulation
+model1 <- lm(lead_rating_23 ~ education_level, data = q2_ces)
+summary(model1)$coefficients
+# p-value = 1.31 x 10^-55, no evidence against the p-value
+
+model2 <- lm(groups_therm_5 ~ lead_rating_23, data = q2_ces)
+summary(model2)$coefficients
+# p-value = 0, very strong evidence against H_0: There is no difference between the leader rating and the feeling towards politicians in general.
+```
+
+
+---
+
+### Relationship between education levels, leader rating and feelings towards politicians in women voters
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=6, fig.height=3}
+# Scatterplot
+scatterplot <- q2_ces %>% ggplot(aes(x=lead_rating_23, y=groups_therm_5, color = education_level))+
+    geom_point(alpha=0.06)+
+  geom_smooth(method="lm", se=FALSE)+
+  labs(x="Leader Rating for Liberal Party",y="Feelings towards \n Politicians in general")
+
+lineplot <- q2_ces %>% ggplot(aes(x=lead_rating_23, y=groups_therm_5, color = education_level))+
+    geom_point(alpha=0.001)+
+  geom_smooth(method="lm", se=FALSE)+
+  labs(x="Leader Rating for Liberal Party",y="Feelings towards \n Politicians in general")
+
+grid.arrange(scatterplot, lineplot)
+```
+
+
